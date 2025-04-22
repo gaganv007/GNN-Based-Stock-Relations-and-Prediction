@@ -1,0 +1,9 @@
+streamlit
+yfinance
+torch
+torch-geometric
+pytrends
+scikit-learn
+pandas
+plotly
+seaborn
