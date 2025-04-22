@@ -1,13 +1,13 @@
 import os
 import torch
-from models import get_model
 import config
+from models import get_model
 
-def save_model(model, name):
-    torch.save(model.state_dict(), os.path.join(config.MODELS_DIR, f"{name}.pt"))
-
-def load_model(name):
+def load_model(name: str):
+    """
+    Instantiate and load a model’s saved weights from saved_models/{name}.pt
+    """
     model = get_model(name, config.INPUT_DIM, config.HIDDEN_DIM, config.OUTPUT_DIM)
-    model.load_state_dict(torch.load(os.path.join(config.MODELS_DIR, f"{name}.pt")))
-    model.eval()
+    path  = os.path.join(config.MODELS_DIR, f"{name}.pt")
+    model.load_state_dict(torch.load(path))
     return model

@@ -1,19 +1,16 @@
-import os
-import pickle
-import pandas as pd
 import networkx as nx
+import pandas as pd
 import config
-from feature_engineering import FeatureEngineer
 
 class GraphConstructor:
     def __init__(self, features):
         """
-        features: dict of ticker -> DataFrame of engineered features
+        features: dict of ticker -> feature DataFrame
         """
         self.features = features
 
     def build_correlation_graph(self):
-        rets = {stk: feat["returns_1d"] for stk, feat in self.features.items()}
+        rets = {tk: feat["returns_1d"] for tk, feat in self.features.items()}
         corr = pd.DataFrame(rets).corr()
         G = nx.Graph()
         G.add_nodes_from(self.features.keys())
@@ -41,10 +38,10 @@ class GraphConstructor:
 def construct_graph(features=None):
     """
     Return a GraphConstructor built on `features`.
-    If `features` is None, it falls back to generating them via FeatureEngineer.
     """
     if features is None:
-        feats, _ = FeatureEngineer().generate_features()
+        from feature_engineering import FeatureEngineer
+        feats, _ = FeatureEngineer({}).generate_features()
     else:
         feats = features
     return GraphConstructor(feats)

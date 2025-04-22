@@ -47,8 +47,7 @@ class GraphSAGEModel(torch.nn.Module):
 
 class TemporalGNNModel(torch.nn.Module):
     """
-    TemporalGNNModel now uses the same static GCN forward,
-    so it can be trained/evaluated identically.
+    Same static-graph forward, so batching works identically.
     """
     def __init__(self, in_dim, hid_dim, out_dim):
         super().__init__()
