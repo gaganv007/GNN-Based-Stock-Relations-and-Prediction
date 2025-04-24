@@ -1,50 +1,46 @@
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch_geometric.loader import DataLoader
-from models import GCN, GAT, GraphSAGE, TemporalGNN
-from utils import save_model, calculate_metrics
 from sklearn.ensemble import RandomForestClassifier
+from models import get_model
+from utils import calculate_metrics
 import config
 
-MODEL_MAP = {
-    "GCN":         GCN,
-    "GAT":         GAT,
-    "GraphSAGE":   GraphSAGE,
-    "TemporalGNN": TemporalGNN,
-    # no LSTM
-}
-
-def train_model(name, train_data, test_data):
+def train_model(name, train_data, test_data, epochs=30, lr=1e-3, batch_size=16):
     if name == "RandomForest":
         X = np.vstack([d.x.numpy() for d in train_data])
         y = np.hstack([d.y.numpy() for d in train_data])
+
         rf = RandomForestClassifier(n_estimators=100)
         rf.fit(X, y)
-        save_model(rf, name)
-        print(f"✓ Saved RandomForest (n_estimators=100)")
+
+        from joblib import dump
+        os.makedirs(config.MODELS_DIR, exist_ok=True)
+        dump(rf, os.path.join(config.MODELS_DIR, f"{name}.joblib"))
+        print(f"✓ Trained & saved RandomForest as {name}.joblib")
         return rf, None
 
-    ModelClass = MODEL_MAP[name]
-    device     = "cuda" if torch.cuda.is_available() else "cpu"
-    model      = ModelClass(train_data[0].x.shape[1]).to(device)
-    optimiser  = optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
-    loader     = DataLoader(train_data, batch_size=config.BATCH_SIZE, shuffle=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model  = get_model(name, input_dim=train_data[0].x.shape[1]).to(device)
+    optimiser = optim.Adam(model.parameters(), lr=lr)
+    loader    = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 
     best_acc = 0.0
-    for epoch in range(1, config.EPOCHS+1):
+    for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
         for batch in loader:
             batch = batch.to(device)
             optimiser.zero_grad()
-            out   = model(batch.x, batch.edge_index)
-            loss  = F.cross_entropy(out, batch.y)
+            out = model(batch.x, batch.edge_index)
+            loss = F.cross_entropy(out, batch.y)
             loss.backward()
             optimiser.step()
             total_loss += loss.item()
-        # evaluate
+
         model.eval()
         ys, ps = [], []
         with torch.no_grad():
@@ -53,16 +49,17 @@ def train_model(name, train_data, test_data):
                 o = model(d.x, d.edge_index)
                 ys.append(d.y.cpu().numpy())
                 ps.append(F.softmax(o, dim=1).cpu().numpy())
+
         y_true = np.concatenate(ys)
         y_prob = np.concatenate(ps)
         y_pred = y_prob.argmax(axis=1)
         m = calculate_metrics(y_true, y_pred, y_prob)
 
-        print(f"[{name}] Epoch {epoch} — loss {total_loss/len(loader):.4f}  "
-              f"val acc {m['accuracy']:.3f}  f1 {m['f1']:.3f}")
+        print(f"[{name}] Epoch {epoch}: loss {total_loss/len(loader):.4f}  val_acc {m['accuracy']:.3f}")
 
         if m["accuracy"] > best_acc:
             best_acc = m["accuracy"]
+            from utils import save_model
             save_model(model, name)
 
     print(f"✓ Saved best {name}.pt  (acc={best_acc:.3f})")

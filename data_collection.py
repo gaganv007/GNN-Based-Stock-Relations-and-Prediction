@@ -1,7 +1,7 @@
 import os
+import pickle
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
 import config
 
 class DataCollector:
@@ -10,8 +10,7 @@ class DataCollector:
         start_date = start_date or config.START_DATE
         end_date   = end_date   or config.END_DATE
 
-        print(f"Downloading stock data for {len(tickers)} stocks from {start_date} to {end_date}")
-        data = yf.download(
+        df = yf.download(
             tickers=tickers,
             start=start_date,
             end=end_date,
@@ -19,27 +18,22 @@ class DataCollector:
             auto_adjust=True,
             progress=False
         )
-        # for multi‐ticker, swap levels so data['AAPL']['Close'] works
-        if len(tickers) > 1:
-            data = data.swaplevel(0,1,axis=1).sort_index(axis=1)
+        if isinstance(df.columns, pd.MultiIndex):
+            raw_dict = {t: df[t].copy() for t in df.columns.levels[0]}
+        else:
+            raw_dict = {tickers[0]: df.copy()}
 
         os.makedirs(config.RAW_DIR, exist_ok=True)
-        raw_path = os.path.join(config.RAW_DIR, "stock_data.pkl")
-        data.to_pickle(raw_path)
-        print(f"💾 Downloaded and cached stock data → {raw_path}")
-        return data
+        out = os.path.join(config.RAW_DIR, "stock_data.pkl")
+        with open(out, "wb") as f:
+            pickle.dump(raw_dict, f)
+        print(f"💾 Downloaded and cached stock data → {out}")
+        return raw_dict
 
-    def download_google_trends(self, tickers=None, lookback_days=None):
-        # not implemented
+    def download_google_trends(self, *a, **k):
         return None
 
 def download_all_data():
     dc = DataCollector()
-    stock_data  = dc.download_stock_data()
-    trends_data = None
-    if config.USE_GOOGLE_TRENDS:
-        trends_data = dc.download_google_trends(
-            tickers=config.STOCKS,
-            lookback_days=config.GOOGLE_TRENDS_LOOKBACK
-        )
-    return stock_data, trends_data
+    stock_dict = dc.download_stock_data()
+    return stock_dict, None
