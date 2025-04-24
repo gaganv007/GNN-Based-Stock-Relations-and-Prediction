@@ -3,9 +3,6 @@ import numpy as np
 from config import TECHNICAL_INDICATORS
 
 def compute_technical_features(price_df: pd.DataFrame):
-    """
-    Given price_df (dates × tickers), return a dict[ticker] → feature‐DataFrame.
-    """
     feat_dict = {}
     for ticker in price_df.columns:
         d = pd.DataFrame(index=price_df.index)
@@ -33,3 +30,10 @@ def compute_technical_features(price_df: pd.DataFrame):
         feat_dict[ticker] = feat
         print(f"  • Features for {ticker}: {feat.shape[0]} rows, {feat.shape[1]} cols")
     return feat_dict
+def prepare_features():
+    from data_collection import download_price_data
+    download_price_data()
+    fe = FeatureEngineer()
+    print("   • Generating features …")
+    feats, targets = fe.generate_features()
+    return feats, targets
