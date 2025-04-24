@@ -1,65 +1,77 @@
-import torch
-import numpy as np
+# train.py
+import torch, torch.nn.functional as F
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from torch.optim import Adam
-from torch.nn.functional import cross_entropy
 from sklearn.metrics import accuracy_score
-from tqdm import trange
-from config import DEVICE, LR, EPOCHS, PATIENCE, BATCH_SIZE, HIDDEN_DIM, DROPOUT
+import config, os
 from models import GCNNet
 
-def prepare_dataset(feature_dict, G):
-    """
-    Build a single PyG Data object:
-      - x:   [num_nodes×num_feats]
-      - y:   [num_nodes]
-      - edge_index: 2×E long tensor
-    Node order = sorted(feature_dict.keys())
-    """
-    nodes = sorted(feature_dict)
-    feats = [feature_dict[n].iloc[-1].drop("target").values for n in nodes]
-    y     = [feature_dict[n].iloc[-1]["target"] for n in nodes]
-    x = torch.tensor(feats, dtype=torch.float32, device=DEVICE)
-    y = torch.tensor(y,       dtype=torch.long,    device=DEVICE)
-    # edges
-    idx = [nodes.index(u) for u,v in G.edges()]
-    jdx = [nodes.index(v) for u,v in G.edges()]
-    edge_index = torch.tensor([idx+jdx, jdx+idx], dtype=torch.long, device=DEVICE)
-    data = Data(x=x, y=y, edge_index=edge_index)
-    return data
+def prepare_dataset(feats, targets, G, dates):
+    # align all tickers to same date indices
+    # for static graph, pick intersection
+    common_idx = dates[config.STOCKS[0]]
+    for t in config.STOCKS[1:]:
+        common_idx = common_idx.intersection(dates[t])
+    # take features and targets at those dates
+    X = torch.tensor(
+        np.stack([feats[t] for t in config.STOCKS], axis=1)[common_idx],
+        dtype=torch.float
+    )  # (T, N, F)
+    Y = torch.tensor(
+        np.stack([targets[t] for t in config.STOCKS],axis=1)[common_idx],
+        dtype=torch.long
+    )  # (T, N)
+    # split train/test along time
+    split = (common_idx >= pd.to_datetime(config.SPLIT_DATE))
+    train_X, train_Y = X[~split], Y[~split]
+    test_X,  test_Y  = X[split],  Y[split]
+    # build one long sequence per set by concatenating time steps
+    # here we treat each (time,graph) as separate sample
+    def to_data(x, y):
+        data_list = []
+        for t in range(x.shape[0]):
+            data_list.append(Data(
+                x = x[t],
+                edge_index = torch.tensor(list(G.edges),dtype=torch.long).t().contiguous(),
+                y = y[t]
+            ))
+        return data_list
+    return to_data(train_X,train_Y), to_data(test_X,test_Y)
 
-def train_gcn(data_train, data_val, in_dim, out_dim):
-    model = GCNNet(in_dim, HIDDEN_DIM, out_dim, DROPOUT).to(DEVICE)
-    opt   = Adam(model.parameters(), lr=LR, weight_decay=1e-4)
-
-    best_val_acc, patience = 0.0, 0
-    for epoch in trange(1, EPOCHS+1, desc="Training GCN"):
+def train_and_eval(feats, targets, G, dates):
+    from torch_geometric.loader import DataLoader
+    train_ds, test_ds = prepare_dataset(feats, targets, G, dates)
+    loader_tr = DataLoader(train_ds, batch_size=config.BATCH_SIZE, shuffle=True)
+    loader_te = DataLoader(test_ds,  batch_size=config.BATCH_SIZE)
+    model = GCNNet(
+        in_dim=train_ds[0].x.shape[1],
+        hidden_dim=config.HIDDEN_DIM,
+        out_dim=2,
+        num_layers=config.NUM_LAYERS,
+        dropout=config.DROPOUT
+    ).to(config.DEVICE)
+    opt = torch.optim.Adam(model.parameters(), lr=config.LR)
+    for epoch in range(1, config.EPOCHS+1):
         model.train()
-        opt.zero_grad()
-        out = model(data_train.x, data_train.edge_index)
-        loss = cross_entropy(out, data_train.y)
-        loss.backward()
-        opt.step()
-
-        # eval
-        model.eval()
-        with torch.no_grad():
-            pred = model(data_val.x, data_val.edge_index).argmax(dim=1)
-            val_acc = accuracy_score(data_val.y.cpu(), pred.cpu())
-
-        print(f"  Epoch {epoch:02d}: loss={loss.item():.4f}, val_acc={val_acc:.4f}")
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc; torch.save(model.state_dict(), "saved_models/gcn.pt"); patience=0
-        else:
-            patience +=1
-            if patience>=PATIENCE:
-                print("  → Early stopping")
-                break
-    return best_val_acc
-
-def load_gcn(in_dim, out_dim):
-    model = GCNNet(in_dim, HIDDEN_DIM, out_dim, DROPOUT).to(DEVICE)
-    model.load_state_dict(torch.load("saved_models/gcn.pt"))
-    model.eval()
-    return model
+        losses = []
+        for d in loader_tr:
+            d = d.to(config.DEVICE)
+            opt.zero_grad()
+            logits = model(d.x, d.edge_index)
+            loss = F.cross_entropy(logits, d.y)
+            loss.backward(); opt.step()
+            losses.append(loss.item())
+        if epoch%10==0:
+            print(f"[Epoch {epoch:02d}] train loss={sum(losses)/len(losses):.4f}")
+    # eval
+    model.eval(); preds=[]; gts=[]
+    with torch.no_grad():
+        for d in loader_te:
+            d = d.to(config.DEVICE)
+            logits = model(d.x, d.edge_index)
+            preds += logits.argmax(1).cpu().tolist()
+            gts   += d.y.cpu().tolist()
+    acc = accuracy_score(gts, preds)
+    print(f"▶️ Test Accuracy: {acc:.3%}")
+    # save
+    torch.save(model.state_dict(), os.path.join(config.MODELS_DIR, "gcn.pt"))

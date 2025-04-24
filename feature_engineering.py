@@ -1,39 +1,37 @@
-import pandas as pd
-import numpy as np
-from config import TECHNICAL_INDICATORS
+# feature_engineering.py
+import pandas as pd, numpy as np
+from sklearn.preprocessing import StandardScaler
+import config
 
-def compute_technical_features(price_df: pd.DataFrame):
-    feat_dict = {}
-    for ticker in price_df.columns:
-        d = pd.DataFrame(index=price_df.index)
-        d["Price"] = price_df[ticker]
-        # returns
-        d["returns_1d"] = d["Price"].pct_change(TECHNICAL_INDICATORS["returns_1d"])
-        d["returns_5d"] = d["Price"].pct_change(TECHNICAL_INDICATORS["returns_5d"])
-        # moving averages
-        d["ma_10d"]     = d["Price"].rolling(TECHNICAL_INDICATORS["ma_10d"]).mean()
-        d["ma_20d"]     = d["Price"].rolling(TECHNICAL_INDICATORS["ma_20d"]).mean()
-        # volatility (std of returns)
-        d["volatility_10d"] = d["Price"].pct_change().rolling(TECHNICAL_INDICATORS["volatility_10d"]).std()
-        # RSI
-        delta = d["Price"].diff()
-        up, down = delta.clip(lower=0), -delta.clip(upper=0)
-        roll_up   = up.ewm(span=TECHNICAL_INDICATORS["rsi_14d"], adjust=False).mean()
-        roll_down = down.ewm(span=TECHNICAL_INDICATORS["rsi_14d"], adjust=False).mean()
-        RS = roll_up / roll_down
-        d["rsi_14d"] = 100 - (100 / (1 + RS))
-        # target: next‐day up/down
-        d["target"] = (d["Price"].pct_change().shift(-1) > 0).astype(int)
-        # clean missing
-        d = d.dropna()
-        feat = d.drop(columns=["Price"])
-        feat_dict[ticker] = feat
-        print(f"  • Features for {ticker}: {feat.shape[0]} rows, {feat.shape[1]} cols")
-    return feat_dict
-def prepare_features():
-    from data_collection import download_price_data
-    download_price_data()
-    fe = FeatureEngineer()
-    print("   • Generating features …")
-    feats, targets = fe.generate_features()
-    return feats, targets
+class FeatureEngineer:
+    def __init__(self, raw_data):
+        """
+        raw_data: dict ticker -> DataFrame with Open/High/Low/Close/Volume/return_1d
+        """
+        self.raw = raw_data
+
+    def make_features(self):
+        feats, targets, dates = {}, {}, {}
+        for tkr, df in self.raw.items():
+            df = df.copy().dropna(subset=["Close"])
+            df["ma_5"]   = df["Close"].rolling(5).mean()
+            df["ma_20"]  = df["Close"].rolling(20).mean()
+            df["vol_5"]  = df["Close"].pct_change().rolling(5).std()
+            df["rsi_14"] = self._rsi(df["Close"], 14)
+            df = df.dropna()
+            X = df[["ma_5","ma_20","vol_5","rsi_14"]].values
+            X = StandardScaler().fit_transform(X)
+            feats[tkr] = X
+            # binary target: up/down
+            y = (df["return_1d"]>0).astype(int).values
+            targets[tkr] = y
+            dates[tkr] = df.index
+        return feats, targets, dates
+
+    @staticmethod
+    def _rsi(prices, window):
+        delta = prices.diff()
+        up   = delta.clip(lower=0).rolling(window).mean()
+        down = -delta.clip(upper=0).rolling(window).mean()
+        rs   = up/down.replace(0, np.nan)
+        return 100 - 100/(1+rs)
