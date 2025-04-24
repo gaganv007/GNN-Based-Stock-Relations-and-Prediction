@@ -1,47 +1,32 @@
 import networkx as nx
 import pandas as pd
-import config
+import numpy as np
+from config import CORRELATION_THRESHOLD, SECTOR_MAPPING
 
-class GraphConstructor:
-    def __init__(self, features):
-        """
-        features: dict of ticker -> feature DataFrame
-        """
-        self.features = features
-
-    def build_correlation_graph(self):
-        rets = {tk: feat["returns_1d"] for tk, feat in self.features.items()}
-        corr = pd.DataFrame(rets).corr()
-        G = nx.Graph()
-        G.add_nodes_from(self.features.keys())
-        for i in corr.index:
-            for j in corr.columns:
-                if i != j and corr.loc[i, j] > config.CORRELATION_THRESHOLD:
-                    G.add_edge(i, j, weight=float(corr.loc[i, j]))
-        return G
-
-    def build_sector_graph(self):
-        G = nx.Graph()
-        G.add_nodes_from(self.features.keys())
-        for grp in config.SECTOR_MAPPING.values():
-            for a in grp:
-                for b in grp:
-                    if a != b:
-                        G.add_edge(a, b, relation="sector")
-        return G
-
-    def build_combined_graph(self):
-        G1 = self.build_correlation_graph()
-        G2 = self.build_sector_graph()
-        return nx.compose(G1, G2)
-
-def construct_graph(features=None):
+def build_correlation_graph(feature_dict):
     """
-    Return a GraphConstructor built on `features`.
+    Build a static undirected graph where edge (i,j) exists if
+    correlation( returns_1d_i, returns_1d_j ) ≥ threshold.
     """
-    if features is None:
-        from feature_engineering import FeatureEngineer
-        feats, _ = FeatureEngineer({}).generate_features()
-    else:
-        feats = features
-    return GraphConstructor(feats)
+    rets = {t: f["returns_1d"].values for t, f in feature_dict.items()}
+    corr = pd.DataFrame(rets).corr()
+    G = nx.Graph()
+    G.add_nodes_from(feature_dict.keys())
+    for i in corr.index:
+        for j in corr.columns:
+            if i>=j: continue
+            if corr.at[i,j] >= CORRELATION_THRESHOLD:
+                G.add_edge(i,j, weight=corr.at[i,j])
+    print(f"  • Correlation edges: {G.number_of_edges()}")
+    return G
+
+def add_sector_edges(G):
+    """
+    Add edges between stocks in the same sector.
+    """
+    for sector, tickers in SECTOR_MAPPING.items():
+        for i in range(len(tickers)):
+            for j in range(i+1, len(tickers)):
+                G.add_edge(tickers[i], tickers[j], weight=1.0)
+    print(f"  • After sector edges: {G.number_of_edges()}")
+    return G

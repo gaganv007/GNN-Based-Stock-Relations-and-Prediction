@@ -1,85 +1,65 @@
-import os
-import pandas as pd
 import torch
-import torch.nn as nn
-import torch.optim as optim
+import numpy as np
 from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader as PyGDataLoader
+from torch_geometric.loader import DataLoader
+from torch.optim import Adam
+from torch.nn.functional import cross_entropy
+from sklearn.metrics import accuracy_score
+from tqdm import trange
+from config import DEVICE, LR, EPOCHS, PATIENCE, BATCH_SIZE, HIDDEN_DIM, DROPOUT
+from models import GCNNet
 
-import config
-from feature_engineering import FeatureEngineer
-from graph_construction import construct_graph
-from models import get_model
+def prepare_dataset(feature_dict, G):
+    """
+    Build a single PyG Data object:
+      - x:   [num_nodes×num_feats]
+      - y:   [num_nodes]
+      - edge_index: 2×E long tensor
+    Node order = sorted(feature_dict.keys())
+    """
+    nodes = sorted(feature_dict)
+    feats = [feature_dict[n].iloc[-1].drop("target").values for n in nodes]
+    y     = [feature_dict[n].iloc[-1]["target"] for n in nodes]
+    x = torch.tensor(feats, dtype=torch.float32, device=DEVICE)
+    y = torch.tensor(y,       dtype=torch.long,    device=DEVICE)
+    # edges
+    idx = [nodes.index(u) for u,v in G.edges()]
+    jdx = [nodes.index(v) for u,v in G.edges()]
+    edge_index = torch.tensor([idx+jdx, jdx+idx], dtype=torch.long, device=DEVICE)
+    data = Data(x=x, y=y, edge_index=edge_index)
+    return data
 
-def train_gnn(model_name: str,
-              lr: float   = config.LEARNING_RATE,
-              epochs: int = config.NUM_EPOCHS,
-              batch_size: int = config.BATCH_SIZE):
-    feats, targets = FeatureEngineer({}).generate_features()
-    pred = config.STOCKS[0]
-    dates = feats[pred].index
+def train_gcn(data_train, data_val, in_dim, out_dim):
+    model = GCNNet(in_dim, HIDDEN_DIM, out_dim, DROPOUT).to(DEVICE)
+    opt   = Adam(model.parameters(), lr=LR, weight_decay=1e-4)
 
-    # Build graph once
-    gc = construct_graph(features=feats)
-    G  = gc.build_combined_graph()
-    node2idx = {tk: i for i, tk in enumerate(config.STOCKS)}
+    best_val_acc, patience = 0.0, 0
+    for epoch in trange(1, EPOCHS+1, desc="Training GCN"):
+        model.train()
+        opt.zero_grad()
+        out = model(data_train.x, data_train.edge_index)
+        loss = cross_entropy(out, data_train.y)
+        loss.backward()
+        opt.step()
 
-    # Prepare data objects + record dates
-    data_list, data_dates = [], []
-    for i, date in enumerate(dates[:-1]):
-        x = torch.tensor(
-            [feats[tk].loc[date].values for tk in config.STOCKS],
-            dtype=torch.float
-        )
-        y = torch.tensor([int(targets[pred].loc[dates[i+1]])], dtype=torch.long)
+        # eval
+        model.eval()
+        with torch.no_grad():
+            pred = model(data_val.x, data_val.edge_index).argmax(dim=1)
+            val_acc = accuracy_score(data_val.y.cpu(), pred.cpu())
 
-        edges = []
-        for u, v in G.edges():
-            ui, vi = node2idx[u], node2idx[v]
-            edges += [(ui, vi), (vi, ui)]
-        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
-
-        d = Data(x=x, edge_index=edge_index, y=y)
-        data_list.append(d)
-        data_dates.append(date)
-
-    # Train split
-    train_mask = [d <= pd.to_datetime(config.TRAIN_END_DATE) for d in data_dates]
-    train_data = [d for d, m in zip(data_list, train_mask) if m]
-
-    loader = PyGDataLoader(train_data, batch_size=batch_size, shuffle=True)
-
-    model     = get_model(model_name, config.INPUT_DIM, config.HIDDEN_DIM, config.OUTPUT_DIM)
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=config.WEIGHT_DECAY)
-    criterion = nn.CrossEntropyLoss()
-
-    model.train()
-    best_loss = float("inf")
-    patience  = 0
-
-    for epoch in range(1, epochs+1):
-        total_loss = 0.0
-        for batch in loader:
-            optimizer.zero_grad()
-            out  = model(batch)
-            loss = criterion(out, batch.y)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        avg = total_loss / len(loader)
-        print(f"[Train] {model_name} Epoch {epoch}/{epochs} — Loss: {avg:.4f}")
-
-        # Early stopping
-        if avg < best_loss:
-            best_loss, patience = avg, 0
-            # Save best
-            torch.save(model.state_dict(),
-                       os.path.join(config.MODELS_DIR, f"{model_name}.pt"))
+        print(f"  Epoch {epoch:02d}: loss={loss.item():.4f}, val_acc={val_acc:.4f}")
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc; torch.save(model.state_dict(), "saved_models/gcn.pt"); patience=0
         else:
-            patience += 1
-            if patience >= config.EARLY_STOPPING_PATIENCE:
-                print("Early stopping.")
+            patience +=1
+            if patience>=PATIENCE:
+                print("  → Early stopping")
                 break
+    return best_val_acc
 
-    print(f"Final weights saved for {model_name}.pt")
+def load_gcn(in_dim, out_dim):
+    model = GCNNet(in_dim, HIDDEN_DIM, out_dim, DROPOUT).to(DEVICE)
+    model.load_state_dict(torch.load("saved_models/gcn.pt"))
+    model.eval()
     return model

@@ -1,35 +1,31 @@
-import os
 import yfinance as yf
 import pandas as pd
-import config
+from tqdm import tqdm
+from config import STOCKS, START_DATE
+import os
 
-def download_all_data():
+def download_price_data():
     """
-    Download historical price data into data/raw and
-    save per‐ticker DataFrames in data/processed.
+    Download adjusted close prices for all STOCKS since START_DATE.
+    Returns a DataFrame with date index and tickers as columns.
     """
-    raw = yf.download(
-        tickers=config.STOCKS,
-        start=config.START_DATE,
-        end=config.END_DATE,
-        group_by="ticker",
+    os.makedirs("data", exist_ok=True)
+    cache_file = "data/price_data.pkl"
+    try:
+        df = pd.read_pickle(cache_file)
+        print("✅ Loaded cached price data")
+        return df
+    except FileNotFoundError:
+        pass
+
+    print("↓ Downloading price data …")
+    data = yf.download(
+        tickers=STOCKS,
+        start=START_DATE,
         auto_adjust=True,
         progress=False
-    )
-    raw_dir = os.path.join(config.DATA_DIR, "raw")
-    os.makedirs(raw_dir, exist_ok=True)
-    raw.to_pickle(os.path.join(raw_dir, "stock_data.pkl"))
-
-    # Unpack into dict of per‐ticker DataFrames
-    processed = {}
-    for stk in config.STOCKS:
-        processed[stk] = raw[stk].copy()
-
-    proc_dir = os.path.join(config.DATA_DIR, "processed")
-    os.makedirs(proc_dir, exist_ok=True)
-    pd.to_pickle(processed, os.path.join(proc_dir, "merged_data.pkl"))
-
-    return processed
-
-if __name__ == "__main__":
-    download_all_data()
+    )["Close"]
+    data = data.dropna(how="all")  # drop days with no market data
+    data.to_pickle(cache_file)
+    print("✅ Saved price data to cache")
+    return data
