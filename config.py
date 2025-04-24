@@ -1,28 +1,29 @@
+# config.py
+
 import os
 from datetime import datetime
 
-# Data
-START_DATE    = "2010-01-01"
-SPLIT_DATE    = "2018-01-01"
-END_DATE      = datetime.now().strftime("%Y-%m-%d")
-DATA_DIR      = "data"
-RAW_DIR       = os.path.join(DATA_DIR, "raw")
+# 1) Data dates
+START_DATE = "2010-01-01"
+END_DATE   = "2024-12-31"   # clamp to end of 2024
 
-# Stocks to model (e.g. S&P 100 subset)
-STOCKS = ["AAPL","MSFT","GOOGL","AMZN","FB","JPM","JNJ","V","PG","XOM"]
+# 2) Stocks to include
+STOCKS = [
+    "AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA","AMD",
+    "JPM","BAC","WFC","GS","V","MA",
+    "XOM","CVX","COP","EOG","SLB",
+    "JNJ","UNH","PFE","MRK","ABT",
+    "PG","KO","WMT","HD","COST"
+]
 
-# Graph
-CORR_THRESHOLD = 0.5
+# 3) Paths
+BASE_DIR       = os.getcwd()
+RAW_DIR        = os.path.join(BASE_DIR, "data", "raw")
+PROCESSED_DIR  = os.path.join(BASE_DIR, "data", "processed")
+MODELS_DIR     = os.path.join(BASE_DIR, "saved_models")
+RESULTS_DIR    = os.path.join(BASE_DIR, "results")
+GRAPHS_DIR     = os.path.join(BASE_DIR, "data", "graphs")
 
-# GNN
-DEVICE       = "cuda" if __import__("torch").cuda.is_available() else "cpu"
-HIDDEN_DIM   = 64
-NUM_LAYERS   = 2
-DROPOUT      = 0.2
-LR           = 1e-3
-EPOCHS       = 50
-BATCH_SIZE   = 1  # whole‐graph
-
-# Results
-MODELS_DIR   = "saved_models"
-os.makedirs(MODELS_DIR, exist_ok=True)
+# 4) GNN & training
+MODELS         = ["GCN", "GAT", "GraphSAGE", "TemporalGNN"]
+DEVICE         = "cuda" if False else "cpu"  # adjust if you have GPU
