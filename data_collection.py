@@ -1,3 +1,5 @@
+# data_collection.py
+
 import os
 import pickle
 import pandas as pd
@@ -30,10 +32,6 @@ class DataCollector:
         print(f"💾 Downloaded and cached stock data → {out}")
         return raw_dict
 
-    def download_google_trends(self, *a, **k):
-        return None
-
 def download_all_data():
     dc = DataCollector()
-    stock_dict = dc.download_stock_data()
-    return stock_dict, None
+    return dc.download_stock_data(), None
