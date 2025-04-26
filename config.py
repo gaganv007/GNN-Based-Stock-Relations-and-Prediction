@@ -1,5 +1,3 @@
-# config.py
-
 import os
 from datetime import datetime
 
@@ -14,38 +12,11 @@ RESULTS_DIR    = os.path.join(BASE_DIR, "results")
 for d in (RAW_DIR, PROCESSED_DIR, GRAPHS_DIR, MODELS_DIR, RESULTS_DIR):
     os.makedirs(d, exist_ok=True)
 
-# Data collection window
-START_DATE      = "2020-01-01"
-END_DATE        = datetime.now().strftime("%Y-%m-%d")
+START_DATE       = "2020-01-01"
+END_DATE         = datetime.now().strftime("%Y-%m-%d")
+TEST_START_DATE  = "2023-01-01"
 
-# Split train/test
-TEST_START_DATE = "2023-01-01"
-
-# Feature engineering windows
-FEATURE_WINDOW        = 10    # how many past days to flatten into features
-DYNAMIC_CORR_WINDOW   = 20    # days for rolling correlation
-SHORT_CORR_WINDOW     = 20
-LONG_CORR_WINDOW      = 60
-
-# Graph thresholds
-CORRELATION_THRESHOLD = 0.4
-
-# Model / training
-MODELS     = ["GATWithAtt", "GCN", "GraphSAGE", "RandomForest"]
-BATCH_SIZE = 16
-LR         = 1e-3
-EPOCHS     = 30
-
-# Stocks list
-STOCKS = [
-    "AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA","AMD",
-    "JPM","BAC","WFC","GS","V","MA",
-    "XOM","CVX","COP","EOG","SLB",
-    "JNJ","UNH","PFE","MRK","ABT",
-    "PG","KO","WMT","HD","COST"
-]
-
-# Technical indicators config
+FEATURE_WINDOW   = 10
 TECHNICAL_INDICATORS = {
     "returns_1d":    1,
     "returns_5d":    5,
@@ -58,3 +29,22 @@ TECHNICAL_INDICATORS = {
     "momentum_5d":   5,
     "momentum_10d": 10,
 }
+
+SHORT_CORR_WINDOW    = 20
+LONG_CORR_WINDOW     = 60
+CORRELATION_THRESHOLD = 0.4
+
+SECTOR_MAP = {
+    "Technology": ["AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA","AMD"],
+    "Finance":    ["JPM","BAC","WFC","GS","V","MA"],
+    "Energy":     ["XOM","CVX","COP","EOG","SLB"],
+    "Healthcare": ["JNJ","UNH","PFE","MRK","ABT"],
+    "Consumer":   ["PG","KO","WMT","HD","COST"],
+}
+
+MODELS     = ["TemporalGAT","GATWithAtt","GCN","GraphSAGE","RandomForest"]
+BATCH_SIZE = 16
+LR         = 1e-3
+EPOCHS     = 100
+
+STOCKS = sum(SECTOR_MAP.values(), [])

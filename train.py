@@ -11,8 +11,12 @@ from models import get_model
 from utils import calculate_metrics, save_model
 import config
 
+def focal_loss(inputs, targets, alpha=0.25, gamma=2.0):
+    ce = F.cross_entropy(inputs, targets, reduction='none')
+    pt = torch.exp(-ce)
+    return (alpha * (1-pt)**gamma * ce).mean()
+
 def train_model(name, train_data, test_data):
-    # --- RandomForest branch unchanged ---
     if name == "RandomForest":
         X = np.vstack([d.x.numpy() for d in train_data])
         y = np.hstack([d.y.numpy() for d in train_data])
@@ -24,48 +28,38 @@ def train_model(name, train_data, test_data):
         print(f"✓ Trained & saved RandomForest.joblib")
         return
 
-    # --- GNN branch ---
     device    = "cuda" if torch.cuda.is_available() else "cpu"
     model     = get_model(name, input_dim=train_data[0].x.shape[1]).to(device)
     optimiser = optim.Adam(model.parameters(), lr=config.LR)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimiser, mode='max', factor=0.5, patience=5)
     loader    = DataLoader(train_data, batch_size=config.BATCH_SIZE, shuffle=True)
 
     best_acc = 0.0
+    no_imp   = 0
+
     for epoch in range(1, config.EPOCHS + 1):
         model.train()
         total_loss = 0.0
-
         for batch in loader:
             batch = batch.to(device)
             optimiser.zero_grad()
-
-            # Call the model
             out = model(batch.x, batch.edge_index)
-
-            # Unpack logits depending on model
-            if isinstance(out, tuple):
-                logits, _ = out      # GATWithAtt returns (logits, attn)
-            else:
-                logits = out         # GCN/GraphSAGE return just logits
-
-            loss = F.cross_entropy(logits, batch.y)
+            logits = out[0] if isinstance(out, tuple) else out
+            loss = focal_loss(logits, batch.y)
             loss.backward()
             optimiser.step()
             total_loss += loss.item()
 
-        # --- Validation ---
+        # Validation
         model.eval()
         ys, ps, preds = [], [], []
         with torch.no_grad():
             for d in test_data:
-                d_out = model(d.x.to(device), d.edge_index.to(device))
-                if isinstance(d_out, tuple):
-                    logits, _ = d_out
-                else:
-                    logits = d_out
-
-                prob = F.softmax(logits, dim=1).cpu().numpy()
-                pred = prob.argmax(axis=1)
+                d = d.to(device)
+                out = model(d.x, d.edge_index)
+                logits = out[0] if isinstance(out, tuple) else out
+                prob   = F.softmax(logits, dim=1).cpu().numpy()
+                pred   = prob.argmax(axis=1)
                 ys.append(d.y.cpu().numpy())
                 ps.append(prob)
                 preds.append(pred)
@@ -76,10 +70,16 @@ def train_model(name, train_data, test_data):
         m = calculate_metrics(y_true, y_pred, y_prob)
 
         print(f"[{name}] Epoch {epoch}  loss={total_loss/len(loader):.4f}  val_acc={m['accuracy']:.3f}")
+        scheduler.step(m["accuracy"])
 
-        # Save best
-        if m["accuracy"] > best_acc:
+        if m["accuracy"] > best_acc + 1e-4:
             best_acc = m["accuracy"]
+            no_imp   = 0
             save_model(model, name)
+        else:
+            no_imp += 1
+            if no_imp >= 10:
+                print("Early stopping")
+                break
 
     print(f"✓ Best {name}.pt saved (acc={best_acc:.3f})")

@@ -1,5 +1,3 @@
-# feature_engineering.py
-
 import os
 import pickle
 import pandas as pd
@@ -38,7 +36,6 @@ def prepare_features():
         df = df.sort_index()
         close = df["Close"]
         f = pd.DataFrame(index=close.index)
-        # Basic technicals
         for name, w in config.TECHNICAL_INDICATORS.items():
             if name.startswith("returns"):
                 f[name] = close.pct_change(w)
@@ -55,7 +52,6 @@ def prepare_features():
             elif name.startswith("momentum"):
                 f[name] = close.diff(w)
 
-        # Bollinger Bands & MACD
         bb = add_bollinger_bands(close.to_frame(), window=20)
         macd = add_macd(close.to_frame())
         f['bb_upper']    = bb['bb_upper']
@@ -63,10 +59,8 @@ def prepare_features():
         f['macd']        = macd['macd']
         f['macd_signal'] = macd['macd_signal']
 
-        # Drop NA/infs
         f = f.replace([np.inf, -np.inf], np.nan).dropna(how="any")
 
-        # Target: next-day up/down
         tgt = (close.pct_change(1).shift(-1) > 0).astype(int)
         tgt = tgt.reindex(f.index).fillna(0).astype(int)
 

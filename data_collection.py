@@ -1,5 +1,3 @@
-# data_collection.py
-
 import os
 import pickle
 import pandas as pd

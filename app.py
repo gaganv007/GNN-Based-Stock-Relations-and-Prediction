@@ -27,98 +27,72 @@ def init_pipeline():
 
 feats, tgts, G = init_pipeline()
 
-# Determine last common date
-common_dates = set.intersection(*(set(df.index) for df in feats.values()))
-last_date = sorted(common_dates)[-1]
+# Last date
+common = set.intersection(*(set(df.index) for df in feats.values()))
+last_date = sorted(common)[-1]
 st.subheader(f"Last available date: {last_date.date()}")
 
-# Sidebar selectors
+# Sidebar
 model_name = st.sidebar.selectbox("Model", config.MODELS)
 ticker     = st.sidebar.selectbox("Ticker", config.STOCKS)
 
-# Plot cumulative returns
-cum_returns = feats[ticker]['returns_1d'].loc[:last_date].cumsum() + 1
-st.line_chart(cum_returns)
+# Price proxy: cumulative returns
+cum = feats[ticker].filter(like="_t-0").cumsum() + 1
+st.line_chart(cum)
 
-# Build feature tensor / array for last_date
+# Build inputs
 feat_len = feats[ticker].shape[1]
-X_rows = [
-    feats[t].loc[last_date].values if last_date in feats[t].index 
-    else np.zeros(feat_len)
-    for t in config.STOCKS
-]
-X_tensor = torch.tensor(np.vstack(X_rows), dtype=torch.float)
+X_rows = [feats[t].loc[last_date].values if last_date in feats[t].index else np.zeros(feat_len)
+          for t in config.STOCKS]
 X_np     = np.vstack(X_rows)
+X_tensor = torch.tensor(X_np, dtype=torch.float)
 
-# Map tickers to indices
-idx_map = {t: i for i, t in enumerate(config.STOCKS)}
+# Edge index
+idx = {t:i for i,t in enumerate(config.STOCKS)}
+src = [idx[u] for u,v in G.edges() if u in idx and v in idx]
+dst = [idx[v] for u,v in G.edges() if u in idx and v in idx]
+edge_index = torch.tensor([src+dst, dst+src], dtype=torch.long)
 
-# Build edge_index for GNNs
-src_idx = [idx_map[u] for u, v in G.edges()]
-dst_idx = [idx_map[v] for u, v in G.edges()]
-edge_index = torch.tensor([src_idx + dst_idx, dst_idx + src_idx], dtype=torch.long)
-
-# Load model
+# Load & predict
 model = load_model(model_name, in_dim=feat_len, device=None)
-
-# Predict
 if isinstance(model, RandomForestClassifier):
-    # Sklearn path
-    probs     = model.predict_proba(X_np)[:, 1]
-    pred_prob = probs[idx_map[ticker]]
-    direction = "📈 Up" if pred_prob >= 0.5 else "📉 Down"
+    probs     = model.predict_proba(X_np)[:,1]
     attn      = None
 else:
-    # PyTorch GNN path
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model  = model.to(device)
     model.eval()
     with torch.no_grad():
         out = model(X_tensor.to(device), edge_index.to(device))
-        if isinstance(out, tuple):
-            logits, attn = out
-        else:
-            logits, attn = out, None
-        probs     = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
-        pred_prob = probs[idx_map[ticker]]
-        direction = "📈 Up" if pred_prob >= 0.5 else "📉 Down"
+        logits, attn = out if isinstance(out, tuple) else (out, None)
+        probs = torch.softmax(logits, dim=1)[:,1].cpu().numpy()
 
-# Display prediction
+pred_prob = probs[list(idx.values())[list(idx.keys()).index(ticker)]]
+direction = "📈 Up" if pred_prob>=0.5 else "📉 Down"
+
+# Display
 st.markdown("### Next-Day Prediction")
 st.metric(label=ticker, value=direction, delta=f"{pred_prob:.1%}")
 
-# Top-5 by probability
+# Top 5 stocks
 df_out = pd.DataFrame({"Ticker": config.STOCKS, "Up Prob": probs})
-df_out = df_out.sort_values("Up Prob", ascending=False).head(5)
-st.table(df_out)
+st.table(df_out.sort_values("Up Prob", ascending=False).head(5))
 
-# Explainability for GNN
+# Explainability
 if attn is not None:
-    st.markdown("### Top 5 Influential Peers")
-    attn_weights = attn.mean(dim=1).cpu().numpy()
-    influence = {}
-    for (u, v), w in zip(G.edges(), attn_weights):
-        if v == ticker:
-            influence[u] = influence.get(u, 0.0) + w
-        if u == ticker:
-            influence[v] = influence.get(v, 0.0) + w
-    top_peers = sorted(influence.items(), key=lambda x: -x[1])[:5]
-    for peer, w in top_peers:
-        st.write(f"- **{peer}**: attention {w:.3f}")
+    st.markdown("### Top-Influential Peers")
+    w = attn.mean(dim=1).cpu().numpy()
+    infl = {}
+    for (u,v), weight in zip(G.edges(), w):
+        if v==ticker: infl[u] = infl.get(u,0)+weight
+        if u==ticker: infl[v] = infl.get(v,0)+weight
+    for peer, weight in sorted(infl.items(), key=lambda x:-x[1])[:5]:
+        st.write(f"- **{peer}**: {weight:.3f}")
 
-    # Visualize subgraph
-    peers = [p for p, _ in top_peers]
-    subG = G.subgraph([ticker] + peers)
+    subG = G.subgraph([ticker] + [p for p in infl][:5])
     pos  = nx.spring_layout(subG)
     fig, ax = plt.subplots()
     nx.draw(subG, pos, with_labels=True, node_size=500, ax=ax)
-    edge_ws = []
-    for u, v in subG.edges():
-        if v == ticker:
-            edge_ws.append(influence.get(u, 0.0) * 5)
-        elif u == ticker:
-            edge_ws.append(influence.get(v, 0.0) * 5)
-        else:
-            edge_ws.append(1)
-    nx.draw_networkx_edges(subG, pos, width=edge_ws, ax=ax)
+    widths = [infl.get(n,1)*5 for u,n in subG.edges() if n!=ticker]
+    nx.draw_networkx_edges(subG, pos, width=widths, ax=ax)
     st.pyplot(fig)
