@@ -8,3 +8,5 @@ scikit-learn
 matplotlib
 tqdm
 python-dotenv
+os
+
