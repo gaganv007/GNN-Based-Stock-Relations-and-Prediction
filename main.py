@@ -1,4 +1,3 @@
-# main.py
 from data_collection     import download_all_data
 from feature_engineering import prepare_features
 from utils               import load_train_test_data

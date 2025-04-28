@@ -1,4 +1,3 @@
-# models.py
 import torch, torch.nn.functional as F
 from torch_geometric.nn import GCNConv, SAGEConv, GATConv
 import config
