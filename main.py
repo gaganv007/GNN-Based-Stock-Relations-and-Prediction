@@ -1,7 +1,7 @@
-from data_collection     import download_all_data
+from data_collection import download_all_data
 from feature_engineering import prepare_features
-from utils               import load_train_test_data
-from train               import train_model
+from utils import load_train_test_data
+from train import train_model
 import config
 
 def main():

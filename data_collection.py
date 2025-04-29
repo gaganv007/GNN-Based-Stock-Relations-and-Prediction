@@ -27,7 +27,7 @@ class DataCollector:
         out = os.path.join(config.RAW_DIR, "stock_data.pkl")
         with open(out, "wb") as f:
             pickle.dump(raw_dict, f)
-        print(f"💾 Downloaded and cached stock data → {out}")
+        print(f"Downloaded stock data → {out}")
         return raw_dict
 
 def download_all_data():

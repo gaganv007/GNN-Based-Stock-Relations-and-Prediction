@@ -1,4 +1,8 @@
-import os, pickle, pandas as pd, numpy as np, config
+import os 
+import pickle
+import pandas as pd
+import numpy as np
+import config
 
 FEAT_PKL = os.path.join(config.PROCESSED_DIR, "features.pkl")
 TGT_PKL  = os.path.join(config.PROCESSED_DIR, "targets.pkl")
