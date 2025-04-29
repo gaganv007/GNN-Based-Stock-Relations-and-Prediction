@@ -8,7 +8,6 @@ from sklearn.ensemble import RandomForestClassifier
 from models import get_model
 from utils import calculate_metrics, save_model
 import config
-import matplotlib.pyplot as plt
 
 def focal_loss(inputs, targets, alpha=0.25, gamma=2.0):
     ce = F.cross_entropy(inputs, targets, reduction='none')
@@ -33,7 +32,6 @@ def train_model(name, train_data, test_data):
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimiser, mode='max', factor=0.5, patience=5)
     loader    = DataLoader(train_data, batch_size=config.BATCH_SIZE, shuffle=True)
 
-    losses, accs, precs, recs, f1s, aucs = [], [], [], [], [], []
     best_acc = 0.0
 
     for epoch in range(1, config.EPOCHS + 1):
@@ -49,7 +47,6 @@ def train_model(name, train_data, test_data):
             optimiser.step()
             total_loss += loss.item()
 
-        # —— VALIDATION —— 
         model.eval()
         ys, ps, preds = [], [], []
         with torch.no_grad():
@@ -68,12 +65,6 @@ def train_model(name, train_data, test_data):
         y_pred = np.concatenate(preds)
         m      = calculate_metrics(y_true, y_pred, y_prob)
         avg_loss = total_loss / len(loader)
-        losses.append(avg_loss)
-        accs.append(m["accuracy"])
-        precs.append(m["precision"])
-        recs.append(m["recall"])
-        f1s.append(m["f1"])
-        aucs.append(m["roc_auc"])
 
         print(
             f"[{name}] Epoch {epoch:2d}  "
@@ -90,27 +81,4 @@ def train_model(name, train_data, test_data):
             best_acc = m["accuracy"]
             save_model(model, name)
 
-    os.makedirs(config.RESULTS_DIR, exist_ok=True)
-    metric_series = {
-        "loss":      losses,
-        "accuracy":  accs,
-        "precision": precs,
-        "recall":    recs,
-        "f1":        f1s,
-        "roc_auc":   aucs,
-    }
-    for metric_name, vals in metric_series.items():
-        plt.figure()
-        plt.plot(range(1, len(vals)+1), vals)
-        plt.title(f"{name} {metric_name} over epochs")
-        plt.xlabel("Epoch")
-        plt.ylabel(metric_name)
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(os.path.join(
-            config.RESULTS_DIR, f"{name}_{metric_name}.png"
-        ))
-        plt.close()
-
     print(f"✓ Training complete. Best acc={best_acc:.3f}")
-    print(f"✓ All metric curves saved to {config.RESULTS_DIR}")
