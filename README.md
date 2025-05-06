@@ -25,7 +25,7 @@ I build a daily-updated graph of 29 large‑cap U.S. stocks, where edges represe
 │   ├── raw/                   # Downloaded stock data pickles
 │   ├── processed/             # Feature & target pickles
 │   └── graphs/                # Edge lists CSVs
-├── saved\_models/              # Trained model files (.pt, .joblib)
+├── saved_models/              # Trained model files (.pt, .joblib)
 ├── results/                   # Evaluation outputs & plots
 ├── app.py                     # Streamlit web app demo
 ├── config.py                  # Global settings & parameters
