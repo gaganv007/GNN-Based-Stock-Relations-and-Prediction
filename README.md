@@ -29,9 +29,9 @@ I build a daily-updated graph of 29 large‑cap U.S. stocks, where edges represe
 ├── results/                   # Evaluation outputs & plots
 ├── app.py                     # Streamlit web app demo
 ├── config.py                  # Global settings & parameters
-├── data\_collection.py         # Download raw stock data
-├── feature\_engineering.py     # Compute technical indicators
-├── graph\_construction.py      # Build correlation graphs
+├── data_collection.py         # Download raw stock data
+├── feature_engineering.py     # Compute technical indicators
+├── graph_construction.py      # Build correlation graphs
 ├── main.py                    # End-to-end pipeline
 ├── models.py                  # GNN model definitions
 ├── train.py                   # Training loop for all models
